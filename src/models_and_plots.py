@@ -27,7 +27,9 @@ def ols_vs_mixed(long_df, label, outpath=None):
     # OLS
     ols = smf.ols("SpO2 ~ block", data=long_df).fit()
     # Mixed (random intercept + slope)
-    mixed = smf.mixedlm("SpO2 ~ block", long_df, groups=long_df["Jugador"], re_formula="~block").fit(method="nm", reml=False, maxiter=1000, full_output=True, disp=False)
+    # mixed = smf.mixedlm("SpO2 ~ block", long_df, groups=long_df["Jugador"], re_formula="~block").fit(method="nm", reml=False, maxiter=1000, full_output=True, disp=False)
+    mixed = smf.mixedlm("SpO2 ~ block", long_df, groups=long_df["Jugador"], re_formula="~block")
+    mixed = mixed.fit(method="lbfgs", reml=False, maxiter=200, disp=False)
     # Observed means
     obs = long_df.groupby("block")["SpO2"].agg(["mean","sem"]).reset_index()
     obs["ci"] = 1.96*obs["sem"]
