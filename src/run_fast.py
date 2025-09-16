@@ -67,7 +67,7 @@ res  = pd.read_excel(EXCEL, sheet_name="Resumen")
 
 # Añade número de sesiones
 mean = mean.merge(res[["Nombre","Total de sesiones (n)"]], on="Nombre", how="left")
-mean4 = mean[mean["Total de sesiones (n)"]]>=4
+mean4 = mean[mean["Total de sesiones (n)"]>=4]
 mean4 = mean4.copy()
 
 paired = []
