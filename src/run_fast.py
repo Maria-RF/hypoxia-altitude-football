@@ -67,7 +67,8 @@ res  = pd.read_excel(EXCEL, sheet_name="Resumen")
 
 # Añade número de sesiones
 mean = mean.merge(res[["Nombre","Total de sesiones (n)"]], on="Nombre", how="left")
-mean4 = mean[mean["Total de sesiones (n)"]>=4].copy()
+mean4 = mean[mean["Total de sesiones (n)"]]>=4
+mean4 = mean4.copy()
 
 paired = []
 for _, r in mean4.iterrows():
@@ -157,10 +158,11 @@ if pos_path.exists():
         pos_df[["name_key","Position","Line"]],
         on="name_key", how="left", suffixes=("","_pos")
     )
-    # <<< FIX: usar combine_first en vez de fillna con Series >>>
+    # usar combine_first para rellenar con otra columna
     for col in ("Position","Line"):
         if f"{col}_pos" in summary.columns:
-            summary[col] = summary.get(col, pd.Series(index=summary.index, dtype=object)).combine_first(summary[f"{col}_pos"])
+            base = summary[col] if col in summary.columns else pd.Series(index=summary.index, dtype=object)
+            summary[col] = base.combine_first(summary[f"{col}_pos"])
             summary.drop(columns=[f"{col}_pos"], inplace=True)
 
 # Fallback 2: si aún faltara, intenta desde el Excel 'Resumen' si hay columnas afines
@@ -185,10 +187,10 @@ if rename_map:
             pos2[["name_key"] + [c for c in ["Position","Line"] if c in pos2.columns]],
             on="name_key", how="left", suffixes=("","_res")
         )
-        # <<< FIX: usar combine_first aquí también >>>
         for col in ("Position","Line"):
             if f"{col}_res" in summary.columns:
-                summary[col] = summary.get(col, pd.Series(index=summary.index, dtype=object)).combine_first(summary[f"{col}_res"])
+                base = summary[col] if col in summary.columns else pd.Series(index=summary.index, dtype=object)
+                summary[col] = base.combine_first(summary[f"{col}_res"])
                 summary.drop(columns=[f"{col}_res"], inplace=True)
 
 # Garantiza Position/Line
@@ -232,9 +234,10 @@ if {"name","m_per_min","mai_per_min","Position","Line"}.issubset(summary.columns
         y = plot_df_basic["mai_per_min"].to_numpy(float)
         A = np.vstack([x, np.ones_like(x)]).T
         slope, intercept = np.linalg.lstsq(A, y, rcond=None)[0]
-        xx = np.linspace(x.min(), x.max(), 100)
-        yy = slope*xx + intercept
-        plt.plot(xx, yy, linestyle="--", label=f"OLS: y={slope:.2f}x+{intercept:.2f}")
+        r, pval = pearsonr(x, y); r2 = r**2
+        xx = np.linspace(x.min(), x.max(), 100); yy = slope*xx + intercept
+        plt.plot(xx, yy, linestyle="--",
+                 label=f"y={slope:.2f}x+{intercept:.2f} | R²={r2:.2f}, p={pval:.3f}")
         plt.xlabel("m/min"); plt.ylabel("MAI/min")
         plt.title("Relación m/min vs MAI/min (partido)")
         plt.legend(); plt.tight_layout()
@@ -244,16 +247,17 @@ if {"name","m_per_min","mai_per_min","Position","Line"}.issubset(summary.columns
     if len(plot_df_basic) >= 1:
         plt.figure(figsize=(8,6))
         plt.scatter(plot_df_basic["m_per_min"], plot_df_basic["mai_per_min"], alpha=0.7)
-        for _, r in plot_df_basic.iterrows():
-            plt.annotate(str(r["name"]), (r["m_per_min"], r["mai_per_min"]), fontsize=8, alpha=0.85)
+        for _, rrow in plot_df_basic.iterrows():
+            plt.annotate(str(rrow["name"]), (rrow["m_per_min"], rrow["mai_per_min"]), fontsize=8, alpha=0.85)
         if len(plot_df_basic) >= 2:
             x = plot_df_basic["m_per_min"].to_numpy(float)
             y = plot_df_basic["mai_per_min"].to_numpy(float)
             A = np.vstack([x, np.ones_like(x)]).T
             slope, intercept = np.linalg.lstsq(A, y, rcond=None)[0]
-            xx = np.linspace(x.min(), x.max(), 100)
-            yy = slope*xx + intercept
-            plt.plot(xx, yy, linestyle="--", label=f"OLS: y={slope:.2f}x+{intercept:.2f}")
+            r, pval = pearsonr(x, y); r2 = r**2
+            xx = np.linspace(x.min(), x.max(), 100); yy = slope*xx + intercept
+            plt.plot(xx, yy, linestyle="--",
+                     label=f"y={slope:.2f}x+{intercept:.2f} | R²={r2:.2f}, p={pval:.3f}")
         plt.xlabel("m/min"); plt.ylabel("MAI/min")
         plt.title("Relación m/min vs MAI/min (con nombres)")
         if len(plot_df_basic) >= 2: plt.legend()
@@ -272,9 +276,10 @@ if {"name","m_per_min","mai_per_min","Position","Line"}.issubset(summary.columns
             y = plot_df_basic["mai_per_min"].to_numpy(float)
             A = np.vstack([x, np.ones_like(x)]).T
             slope, intercept = np.linalg.lstsq(A, y, rcond=None)[0]
-            xx = np.linspace(x.min(), x.max(), 100)
-            yy = slope*xx + intercept
-            plt.plot(xx, yy, linestyle="--", label=f"OLS global: y={slope:.2f}x+{intercept:.2f}")
+            r, pval = pearsonr(x, y); r2 = r**2
+            xx = np.linspace(x.min(), x.max(), 100); yy = slope*xx + intercept
+            plt.plot(xx, yy, linestyle="--",
+                     label=f"OLS global: y={slope:.2f}x+{intercept:.2f} | R²={r2:.2f}, p={pval:.3f}")
         plt.xlabel("m/min"); plt.ylabel("MAI/min")
         plt.title("Relación m/min vs MAI/min por línea (DEF/MID/FWD)")
         plt.legend(title="Línea"); plt.tight_layout()
@@ -322,19 +327,22 @@ faltan_gps = merged[merged["m_per_min"].isna()]["name_excel"].unique().tolist()
 if faltan_gps:
     print("⚠️ Aún sin m/min (no están en CSV del partido o nombre distinto):", ", ".join(faltan_gps))
 
-# Scatter por línea
+# Scatter por línea (con R² y p)
 if len(ok) >= 2:
     plt.figure(figsize=(8,6))
     for ln in ok["Line"].unique():
         sub = ok[ok["Line"] == ln]
         plt.scatter(sub["m_per_min"], sub["SPO2_last"], alpha=0.85, label=str(ln))
-    x = ok["m_per_min"].to_numpy(float); y = ok["SPO2_last"].to_numpy(float)
+    x = ok["m_per_min"].to_numpy(float)
+    y = ok["SPO2_last"].to_numpy(float)
     A = np.vstack([x, np.ones_like(x)]).T
     slope, intercept = np.linalg.lstsq(A, y, rcond=None)[0]
+    r, pval = pearsonr(x, y); r2 = r**2
     xx = np.linspace(x.min(), x.max(), 100); yy = slope*xx + intercept
-    r, pval = pearsonr(x, y)
-    plt.plot(xx, yy, linestyle="--", label=f"OLS global: y={slope:.2f}x+{intercept:.2f}")
+    plt.plot(xx, yy, linestyle="--",
+             label=f"OLS global: y={slope:.2f}x+{intercept:.2f} | R²={r2:.2f}, p={pval:.3f}")
     plt.xlabel("m/min (partido)"); plt.ylabel("SpO₂ última sesión (%)")
+    # Mantengo r y p en el título también (opcional)
     plt.title(f"m/min vs SpO₂ última sesión por línea (n={len(ok)})\nPearson r={r:.2f}, p={pval:.3f}")
     plt.legend(title="Línea"); plt.tight_layout()
     plt.savefig(OUT_FIG/"corr_mmin_spo2_last_by_line.png", dpi=200); plt.close()
