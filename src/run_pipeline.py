@@ -40,16 +40,16 @@ def main():
     violin_paired_first_last(paired_df, Path(cfg["outputs"]["figures_dir"], "violin_paired_spo2.png"))
 
     # OLS vs Mixed
-    ols_vs_mixed(long_mixed, "Observed vs OLS vs Mixed (blocks 1–6)",
-                 Path(cfg["outputs"]["figures_dir"], "ols_vs_mixed_1_6.png"))
+    # ols_vs_mixed(long_mixed, "Observed vs OLS vs Mixed (blocks 1–6)",
+    #              Path(cfg["outputs"]["figures_dir"], "ols_vs_mixed_1_6.png"))
 
     # Positions + adjustment
-    gp, model = add_position_and_run_by_position(slopes, gps_sum, cfg["paths"]["positions_csv"],
-                                                 out_table=Path(cfg["outputs"]["tables_dir"], "merged_slopes_gps_positions.csv"),
-                                                 fig_out=Path(cfg["outputs"]["figures_dir"], "slope_by_line.png"))
-    if model is not None:
-        with open(Path(cfg["outputs"]["tables_dir"], "ols_adjusted_by_position.txt"), "w") as f:
-            f.write(model.summary().as_text())
+    # gp, model = add_position_and_run_by_position(slopes, gps_sum, cfg["paths"]["positions_csv"],
+    #                                             out_table=Path(cfg["outputs"]["tables_dir"], "merged_slopes_gps_positions.csv"),
+    #                                             fig_out=Path(cfg["outputs"]["figures_dir"], "slope_by_line.png"))
+    # if model is not None:
+    #     with open(Path(cfg["outputs"]["tables_dir"], "ols_adjusted_by_position.txt"), "w") as f:
+    #         f.write(model.summary().as_text())
 
 if __name__ == "__main__":
     main()
