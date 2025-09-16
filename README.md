@@ -33,7 +33,7 @@ Pipeline to merge **normobaric hypoxia training** data with **match GPS** at alt
 
 ## Quick start
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/Maria-RF/hypoxia-altitude-football.git
 cd hypoxia-altitude-football
 python -m pip install -r requirements.txt
 # Put your files in data/
