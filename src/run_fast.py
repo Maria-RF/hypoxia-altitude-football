@@ -349,3 +349,43 @@ if len(ok) >= 2:
     print("✅ Figura actualizada:", OUT_FIG/"corr_mmin_spo2_last_by_line.png")
 else:
     print("⚠️ Datos insuficientes para el scatter por línea (se necesitan ≥2 pares).")
+
+# Scatter por línea (con R² y p por cada categoría)
+if len(ok) >= 2:
+    plt.figure(figsize=(8,6))
+    categorias = ok["Line"].unique()
+    colores = plt.cm.tab10(np.linspace(0, 1, len(categorias)))  # Colores distintos
+
+    for ln, color in zip(categorias, colores):
+        sub = ok[ok["Line"] == ln]
+        if len(sub) == 0:
+            continue
+
+        # Scatter puntos de esa categoría
+        plt.scatter(sub["m_per_min"], sub["SPO2_last"], alpha=0.8, label=f"{ln}", color=color)
+
+        # Si hay al menos 2 puntos, calcula recta, R² y p
+        if len(sub) >= 2:
+            x = sub["m_per_min"].to_numpy(float)
+            y = sub["SPO2_last"].to_numpy(float)
+            A = np.vstack([x, np.ones_like(x)]).T
+            slope, intercept = np.linalg.lstsq(A, y, rcond=None)[0]
+            r, pval = pearsonr(x, y); r2 = r**2
+
+            # Línea de regresión para la categoría
+            xx = np.linspace(x.min(), x.max(), 100)
+            yy = slope*xx + intercept
+            plt.plot(xx, yy, linestyle="--", color=color,
+                     label=f"{ln}: y={slope:.2f}x+{intercept:.2f} | R²={r2:.2f}, p={pval:.3f}")
+
+    plt.xlabel("m/min (partido)")
+    plt.ylabel("SpO₂ última sesión (%)")
+    plt.title(f"m/min vs SpO₂ última sesión por línea (n={len(ok)})")
+    plt.legend(title="Línea")
+    plt.tight_layout()
+    plt.savefig(OUT_FIG/"corr_mmin_spo2_last_by_line_multiline.png", dpi=200)
+    plt.close()
+    print("✅ Figura con 3 líneas generada:", OUT_FIG/"corr_mmin_spo2_last_by_line_multiline.png")
+else:
+    print("⚠️ Datos insuficientes para el scatter por línea (se necesitan ≥2 pares).")
+
