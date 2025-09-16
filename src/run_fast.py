@@ -132,6 +132,86 @@ summary["name_key"] = summary["name"].apply(canonical_key).apply(apply_alias)
 mean_filtered["name_key"] = mean_filtered["Nombre"].apply(canonical_key).apply(apply_alias)
 
 # ---------------------------------------------------
+# Gráficos m/min vs MAI/min: básico, con nombres y por línea (usando summary ya fusionado)
+# ---------------------------------------------------
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Asegurar columnas base
+if {"name","m_per_min","mai_per_min"}.issubset(summary.columns):
+    plot_df = summary[["name","m_per_min","mai_per_min","Position","Line"]].copy()
+
+    # Normalizar Line/Position: NaN o "" -> "Unknown"
+    for col in ["Position", "Line"]:
+        if col not in plot_df.columns:
+            plot_df[col] = "Unknown"
+        plot_df[col] = plot_df[col].fillna("").astype(str).str.strip()
+        plot_df.loc[plot_df[col] == "", col] = "Unknown"
+
+    # ---------- (1) Scatter básico ----------
+    plot_df_basic = plot_df.dropna(subset=["m_per_min","mai_per_min"])
+    if len(plot_df_basic) >= 2:
+        plt.figure(figsize=(7,5))
+        plt.scatter(plot_df_basic["m_per_min"], plot_df_basic["mai_per_min"], alpha=0.85)
+        x = plot_df_basic["m_per_min"].to_numpy(float)
+        y = plot_df_basic["mai_per_min"].to_numpy(float)
+        A = np.vstack([x, np.ones_like(x)]).T
+        slope, intercept = np.linalg.lstsq(A, y, rcond=None)[0]
+        xx = np.linspace(x.min(), x.max(), 100)
+        yy = slope*xx + intercept
+        plt.plot(xx, yy, linestyle="--", label=f"OLS: y={slope:.2f}x+{intercept:.2f}")
+        plt.xlabel("m/min"); plt.ylabel("MAI/min"); plt.title("Relación m/min vs MAI/min (partido)")
+        plt.legend(); plt.tight_layout()
+        plt.savefig(OUT_FIG/"m_permin_vs_mai_permin_basico.png", dpi=200); plt.close()
+
+    # ---------- (2) Scatter con nombres ----------
+    if len(plot_df_basic) >= 1:
+        plt.figure(figsize=(8,6))
+        plt.scatter(plot_df_basic["m_per_min"], plot_df_basic["mai_per_min"], alpha=0.7)
+        for _, r in plot_df_basic.iterrows():
+            plt.annotate(str(r["name"]), (r["m_per_min"], r["mai_per_min"]), fontsize=8, alpha=0.85)
+        if len(plot_df_basic) >= 2:
+            x = plot_df_basic["m_per_min"].to_numpy(float)
+            y = plot_df_basic["mai_per_min"].to_numpy(float)
+            A = np.vstack([x, np.ones_like(x)]).T
+            slope, intercept = np.linalg.lstsq(A, y, rcond=None)[0]
+            xx = np.linspace(x.min(), x.max(), 100)
+            yy = slope*xx + intercept
+            plt.plot(xx, yy, linestyle="--", label=f"OLS: y={slope:.2f}x+{intercept:.2f}")
+        plt.xlabel("m/min"); plt.ylabel("MAI/min"); plt.title("Relación m/min vs MAI/min (con nombres)")
+        if len(plot_df_basic) >= 2: plt.legend()
+        plt.tight_layout()
+        plt.savefig(OUT_FIG/"m_permin_vs_mai_permin_labels.png", dpi=200); plt.close()
+
+    # ---------- (3) Scatter por línea (DEF/MID/FWD/Unknown) ----------
+    lines = plot_df_basic["Line"].unique().tolist()
+    plt.figure(figsize=(8,6))
+    for ln in lines:
+        sub = plot_df_basic[plot_df_basic["Line"] == ln]
+        plt.scatter(sub["m_per_min"], sub["mai_per_min"], alpha=0.85, label=str(ln))
+    if len(plot_df_basic) >= 2:
+        x = plot_df_basic["m_per_min"].to_numpy(float)
+        y = plot_df_basic["mai_per_min"].to_numpy(float)
+        A = np.vstack([x, np.ones_like(x)]).T
+        slope, intercept = np.linalg.lstsq(A, y, rcond=None)[0]
+        xx = np.linspace(x.min(), x.max(), 100)
+        yy = slope*xx + intercept
+        plt.plot(xx, yy, linestyle="--", label=f"OLS global: y={slope:.2f}x+{intercept:.2f}")
+    plt.xlabel("m/min"); plt.ylabel("MAI/min")
+    plt.title("Relación m/min vs MAI/min por línea (DEF/MID/FWD)")
+    plt.legend(title="Línea"); plt.tight_layout()
+    plt.savefig(OUT_FIG/"m_permin_vs_mai_permin_por_linea.png", dpi=200); plt.close()
+
+    # (Opcional) chequear quién quedó como Unknown
+    unknowns = plot_df.loc[plot_df["Line"] == "Unknown", "name"].unique().tolist()
+    if unknowns:
+        print("⚠️ Jugadores con línea 'Unknown' en el gráfico:", ", ".join(unknowns))
+    else:
+        print("✅ Ningún jugador quedó con línea 'Unknown' en el gráfico.")
+else:
+    print("Aviso: summary no tiene columnas necesarias: name, m_per_min, mai_per_min.")
+
+# ---------------------------------------------------
 # Scatter m/min vs SpO₂ (última sesión) coloreado por línea (DEF/MID/FWD)
 # Matching robusto a tildes/ñ/espacios
 # ---------------------------------------------------
