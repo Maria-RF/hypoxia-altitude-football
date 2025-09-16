@@ -40,4 +40,10 @@ python -m pip install -r requirements.txt
 #  - DataBase_Futbol_2025v.xlsx
 #  - export_15-09-25.csv
 #  - positions.csv (edit/complete the mapping)
+python.exe -m pip install --upgrade pip
+pip install numpy
+pip install pandas matplotlib
+pip install openpyxl
+py -m venv .venv
+.venv\Scripts\activate
 python src/run_pipeline.py
