@@ -95,6 +95,42 @@ keep = [c for c in [
 summary = df[keep].copy()
 summary.to_csv(OUT_TAB/"gps_summary_by_player.csv", index=False)
 
+# --- Filtrado y alias antes del scatter ---
+
+# Clave canónica para nombres
+def canonical_key(s: str) -> str:
+    import unicodedata, re
+    if s is None:
+        return ""
+    s = str(s).casefold()
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    s = re.sub(r"[^\w\s]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+# Diccionario para corregir typos
+aliases = {
+    canonical_key("Igor Linchnovsky"): canonical_key("Igor Lichnovsky"),
+    canonical_key("Paulo Diaz"): canonical_key("Paulo Díaz"),
+    canonical_key("Alexis Sanchez"): canonical_key("Alexis Sánchez"),
+    # agrega más si detectas otros
+}
+def apply_alias(k: str) -> str:
+    return aliases.get(k, k)
+
+# Limitar mean (hipoxia) a jugadores del CSV del partido
+gps_names_key = set(summary["name"].apply(canonical_key))
+mean_filtered = mean[mean["Nombre"].apply(canonical_key).isin(gps_names_key)].copy()
+
+# Excluir filas no-jugador (ej. "Promedio")
+to_exclude = {"promedio", "equipo", "avg", "average"}
+mean_filtered = mean_filtered[~mean_filtered["Nombre"].apply(lambda x: canonical_key(x) in to_exclude)]
+
+# Aplica alias a ambos datasets
+summary["name_key"] = summary["name"].apply(canonical_key).apply(apply_alias)
+mean_filtered["name_key"] = mean_filtered["Nombre"].apply(canonical_key).apply(apply_alias)
+
 # ---------------------------------------------------
 # Scatter m/min vs SpO₂ (última sesión) coloreado por línea (DEF/MID/FWD)
 # Matching robusto a tildes/ñ/espacios
