@@ -264,25 +264,25 @@ else:
     print("Aviso: summary no tiene columnas necesarias: name, m_per_min, mai_per_min.")
 
 # ---------------------------------------------------
-# Correlación m/min (partido) vs SpO₂ última sesión (hipoxia)
+# Correlación m/min (partido) vs SpO₂ última sesión real de cada jugador
 # ---------------------------------------------------
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import pearsonr
 
-# --- 1) Última sesión SpO₂ por jugador
-# mean4 es la tabla con todas las sesiones por jugador (SPO2_1 ... SPO2_n)
+# --- 1) Determinar última sesión real por jugador ---
 spo2_cols = [c for c in mean4.columns if c.startswith("SPO2_")]
-spo2_last = []
+last_records = []
 for _, row in mean4.iterrows():
-    # última sesión con dato válido
-    valid_cols = [c for c in spo2_cols if not pd.isna(row[c])]
-    if valid_cols:
-        last_col = valid_cols[-1]
-        spo2_last.append({"name": row["Nombre"], "SPO2_last": row[last_col]})
-spo2_last_df = pd.DataFrame(spo2_last)
+    # todas las sesiones con dato válido
+    valid_sessions = [(c, row[c]) for c in spo2_cols if not pd.isna(row[c])]
+    if valid_sessions:
+        last_col, last_val = valid_sessions[-1]  # última con dato
+        last_records.append({"name": row["Nombre"], "SPO2_last": last_val})
 
-# --- 2) Merge con summary para tener m/min
+spo2_last_df = pd.DataFrame(last_records)
+
+# --- 2) Merge con datos del partido para m/min ---
 if "name" not in summary.columns:
     name_like = [c for c in summary.columns if c.lower() in ("name","nombre","jugador")]
     if name_like:
@@ -294,7 +294,7 @@ merged_corr = spo2_last_df.merge(
     how="left"
 )
 
-# --- 3) Scatter + OLS + correlación
+# --- 3) Scatter + OLS + correlación ---
 merged_corr = merged_corr.dropna(subset=["m_per_min","SPO2_last"])
 if len(merged_corr) >= 2:
     x = merged_corr["m_per_min"].to_numpy(float)
@@ -311,13 +311,12 @@ if len(merged_corr) >= 2:
     plt.plot(xx, yy, "r--", label=f"OLS: y={slope:.2f}x+{intercept:.2f}")
     plt.xlabel("m/min (partido)")
     plt.ylabel("SpO₂ última sesión (%)")
-    plt.title(f"Correlación m/min vs SpO₂ última sesión\nr={r:.2f}, p={pval:.3f}")
+    plt.title(f"Correlación m/min vs SpO₂ última sesión real\nr={r:.2f}, p={pval:.3f}")
     plt.legend()
     plt.tight_layout()
     plt.savefig(OUT_FIG/"corr_mmin_spo2_last.png", dpi=200)
     plt.close()
 
-    print(f"✅ Gráfico de correlación guardado en outputs/figures/corr_mmin_spo2_last.png (r={r:.2f}, p={pval:.3f})")
+    print(f"✅ Gráfico de correlación guardado: outputs/figures/corr_mmin_spo2_last.png (r={r:.2f}, p={pval:.3f})")
 else:
-    print("⚠️ Datos insuficientes para correlación m/min vs SpO₂ última sesión.")
-
+    print("⚠️ Datos insuficientes para correlación m/min vs SpO₂ última sesión real.")
