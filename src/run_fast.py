@@ -62,7 +62,7 @@ plt.close()
 # 2) GPS: RESUMEN RÁPIDO + GRÁFICO m/min vs MAI/min
 # ---------------------------------------------------
 # Lectura robusta para CSV con ; y coma decimal (formato LatAm)
-df = pd.read_csv(CSV, sep=";", decimal=",", engine="python", encoding="utf-8-sig")
+df = pd.read_csv(CSV, engine="python", encoding="utf-8-sig")
 
 # Renombres mínimos a nombres estándar
 rename = {
