@@ -1,5 +1,8 @@
 # hypoxia-altitude-football
 
+## 📁 Estructura del repo
+
+```
 hypoxia-altitude-football/
 ├─ README.md
 ├─ requirements.txt
@@ -23,7 +26,7 @@ hypoxia-altitude-football/
 │  └─ 00_explore_and_checks.ipynb
 └─ scripts/
    └─ run_all.sh
-
+```
 # Hypoxia × GPS in Elite Football (Chile NT)
 
 Pipeline to merge **normobaric hypoxia training** data with **match GPS** at altitude, compute SpO₂ adaptations, and relate them to GPS performance with and without **position adjustment**.
