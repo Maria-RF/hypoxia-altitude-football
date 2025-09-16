@@ -96,6 +96,94 @@ summary = df[keep].copy()
 summary.to_csv(OUT_TAB/"gps_summary_by_player.csv", index=False)
 
 # ---------------------------------------------------
+# Merge con posiciones robusto a tildes y ñ
+# ---------------------------------------------------
+from pathlib import Path
+import re
+import unicodedata
+import pandas as pd
+
+POS_FILE = Path("data/positions.csv")
+
+def canonical_key(s: str) -> str:
+    """
+    Normaliza nombres para hacer match robusto:
+    - casefold (minúsculas robustas)
+    - NFKD + elimina diacríticos (tildes); 'ñ' -> 'n'
+    - elimina signos/puntuación
+    - colapsa y recorta espacios
+    """
+    if s is None:
+        return ""
+    # a string
+    s = str(s)
+    # minúsculas robustas
+    s = s.casefold()
+    # normaliza unicode y elimina diacríticos (tildes)
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    # opcional: mapear caracteres similares (ñ → n ya queda como 'n' tras NFKD)
+    # limpiar puntuación y no-alfanumérico (conserva espacios)
+    s = re.sub(r"[^\w\s]", " ", s)  # quita puntuación
+    # colapsar espacios múltiples
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+# Asegura la columna 'name' en summary (si no existe, intenta inferir)
+if "name" not in summary.columns:
+    # intenta detectar columna de nombre
+    name_like = [c for c in summary.columns if c.lower() in ("name","nombre","jugador","player")]
+    if not name_like:
+        name_like = [summary.columns[0]]
+    summary = summary.rename(columns={name_like[0]: "name"})
+
+# Crea clave canónica en summary
+summary["name_key"] = summary["name"].apply(canonical_key)
+
+if POS_FILE.exists():
+    pos = pd.read_csv(POS_FILE)
+
+    # normaliza encabezado y crea clave canónica también en positions
+    # acepta 'Name' o 'name'
+    if "Name" in pos.columns and "name" not in pos.columns:
+        pos = pos.rename(columns={"Name": "name"})
+    # asegurar columnas Position y Line (si no están, créalas vacías)
+    if "Position" not in pos.columns:
+        pos["Position"] = ""
+    if "Line" not in pos.columns:
+        pos["Line"] = ""
+    pos["name_key"] = pos["name"].apply(canonical_key)
+
+    # merge por clave canónica (left join para no perder nadie del resumen GPS)
+    merged = summary.merge(
+        pos[["name_key","Position","Line","name"]].rename(columns={"name":"name_positions"}),
+        on="name_key",
+        how="left",
+        validate="m:1"
+    )
+
+    # completa Position/Line con vacío si falta
+    merged["Position"] = merged["Position"].fillna("")
+    merged["Line"] = merged["Line"].fillna("")
+
+    # Reporte de no matcheados
+    no_match = merged[merged["Position"].eq("") & merged["Line"].eq("")]["name"].unique().tolist()
+    if no_match:
+        print("⚠️ Sin match en positions.csv para:", ", ".join(no_match))
+    else:
+        print("✅ Todos los jugadores del resumen GPS tienen posición/linea (o se completó).")
+
+    # Guarda tabla final
+    OUT_TAB.mkdir(parents=True, exist_ok=True)
+    merged.to_csv(OUT_TAB / "gps_summary_with_positions.csv", index=False)
+
+    # (Opcional) reemplaza summary por merged para que los gráficos posteriores ya vean Position/Line
+    summary = merged
+
+else:
+    print("ℹ️ No se encontró data/positions.csv; se continúa sin posiciones.")
+
+# ---------------------------------------------------
 # 2.b) Gráficos m/min vs MAI/min: básico, con nombres y por posición
 #     Requiere 'summary' con columnas: name, m_per_min, mai_per_min
 #     y (opcional) positions.csv con columnas: Name,Position,Line
