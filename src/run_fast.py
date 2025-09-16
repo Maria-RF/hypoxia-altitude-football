@@ -184,123 +184,81 @@ else:
     print("ℹ️ No se encontró data/positions.csv; se continúa sin posiciones.")
 
 # ---------------------------------------------------
-# 2.b) Gráficos m/min vs MAI/min: básico, con nombres y por posición
-#     Requiere 'summary' con columnas: name, m_per_min, mai_per_min
-#     y (opcional) positions.csv con columnas: Name,Position,Line
+# Gráficos m/min vs MAI/min: básico, con nombres y por línea (usando summary ya fusionado)
 # ---------------------------------------------------
+import numpy as np
+import matplotlib.pyplot as plt
 
-FIG_DIR = OUT_FIG  # ya definido arriba
-
-# Asegurar que están las columnas necesarias
+# Asegurar columnas base
 if {"name","m_per_min","mai_per_min"}.issubset(summary.columns):
-    plot_df = summary[["name","m_per_min","mai_per_min"]].dropna().copy()
+    plot_df = summary[["name","m_per_min","mai_per_min","Position","Line"]].copy()
+
+    # Normalizar Line/Position: NaN o "" -> "Unknown"
+    for col in ["Position", "Line"]:
+        if col not in plot_df.columns:
+            plot_df[col] = "Unknown"
+        plot_df[col] = plot_df[col].fillna("").astype(str).str.strip()
+        plot_df.loc[plot_df[col] == "", col] = "Unknown"
 
     # ---------- (1) Scatter básico ----------
-    if len(plot_df) >= 2:
+    plot_df_basic = plot_df.dropna(subset=["m_per_min","mai_per_min"])
+    if len(plot_df_basic) >= 2:
         plt.figure(figsize=(7,5))
-        plt.scatter(plot_df["m_per_min"], plot_df["mai_per_min"], alpha=0.85)
-        # Recta OLS
-        x = plot_df["m_per_min"].to_numpy(float)
-        y = plot_df["mai_per_min"].to_numpy(float)
+        plt.scatter(plot_df_basic["m_per_min"], plot_df_basic["mai_per_min"], alpha=0.85)
+        x = plot_df_basic["m_per_min"].to_numpy(float)
+        y = plot_df_basic["mai_per_min"].to_numpy(float)
         A = np.vstack([x, np.ones_like(x)]).T
         slope, intercept = np.linalg.lstsq(A, y, rcond=None)[0]
         xx = np.linspace(x.min(), x.max(), 100)
         yy = slope*xx + intercept
         plt.plot(xx, yy, linestyle="--", label=f"OLS: y={slope:.2f}x+{intercept:.2f}")
-        plt.xlabel("m/min")
-        plt.ylabel("MAI/min")
-        plt.title("Relación m/min vs MAI/min (partido)")
-        plt.legend()
-        plt.tight_layout()
-        plt.savefig(FIG_DIR/"m_permin_vs_mai_permin_basico.png", dpi=200)
-        plt.close()
-    else:
-        print("Aviso: datos insuficientes para scatter básico (m/min vs MAI/min).")
+        plt.xlabel("m/min"); plt.ylabel("MAI/min"); plt.title("Relación m/min vs MAI/min (partido)")
+        plt.legend(); plt.tight_layout()
+        plt.savefig(OUT_FIG/"m_permin_vs_mai_permin_basico.png", dpi=200); plt.close()
 
     # ---------- (2) Scatter con nombres ----------
-    if len(plot_df) >= 1:
+    if len(plot_df_basic) >= 1:
         plt.figure(figsize=(8,6))
-        plt.scatter(plot_df["m_per_min"], plot_df["mai_per_min"], alpha=0.7)
-        # Etiquetas (nombre)
-        for _, r in plot_df.iterrows():
+        plt.scatter(plot_df_basic["m_per_min"], plot_df_basic["mai_per_min"], alpha=0.7)
+        for _, r in plot_df_basic.iterrows():
             plt.annotate(str(r["name"]), (r["m_per_min"], r["mai_per_min"]), fontsize=8, alpha=0.85)
-        # Recta OLS si hay >=2
-        if len(plot_df) >= 2:
-            x = plot_df["m_per_min"].to_numpy(float)
-            y = plot_df["mai_per_min"].to_numpy(float)
+        if len(plot_df_basic) >= 2:
+            x = plot_df_basic["m_per_min"].to_numpy(float)
+            y = plot_df_basic["mai_per_min"].to_numpy(float)
             A = np.vstack([x, np.ones_like(x)]).T
             slope, intercept = np.linalg.lstsq(A, y, rcond=None)[0]
             xx = np.linspace(x.min(), x.max(), 100)
             yy = slope*xx + intercept
             plt.plot(xx, yy, linestyle="--", label=f"OLS: y={slope:.2f}x+{intercept:.2f}")
-        plt.xlabel("m/min")
-        plt.ylabel("MAI/min")
-        plt.title("Relación m/min vs MAI/min (con nombres)")
-        if len(plot_df) >= 2:
-            plt.legend()
+        plt.xlabel("m/min"); plt.ylabel("MAI/min"); plt.title("Relación m/min vs MAI/min (con nombres)")
+        if len(plot_df_basic) >= 2: plt.legend()
         plt.tight_layout()
-        plt.savefig(FIG_DIR/"m_permin_vs_mai_permin_labels.png", dpi=200)
-        plt.close()
+        plt.savefig(OUT_FIG/"m_permin_vs_mai_permin_labels.png", dpi=200); plt.close()
+
+    # ---------- (3) Scatter por línea (DEF/MID/FWD/Unknown) ----------
+    lines = plot_df_basic["Line"].unique().tolist()
+    plt.figure(figsize=(8,6))
+    for ln in lines:
+        sub = plot_df_basic[plot_df_basic["Line"] == ln]
+        plt.scatter(sub["m_per_min"], sub["mai_per_min"], alpha=0.85, label=str(ln))
+    if len(plot_df_basic) >= 2:
+        x = plot_df_basic["m_per_min"].to_numpy(float)
+        y = plot_df_basic["mai_per_min"].to_numpy(float)
+        A = np.vstack([x, np.ones_like(x)]).T
+        slope, intercept = np.linalg.lstsq(A, y, rcond=None)[0]
+        xx = np.linspace(x.min(), x.max(), 100)
+        yy = slope*xx + intercept
+        plt.plot(xx, yy, linestyle="--", label=f"OLS global: y={slope:.2f}x+{intercept:.2f}")
+    plt.xlabel("m/min"); plt.ylabel("MAI/min")
+    plt.title("Relación m/min vs MAI/min por línea (DEF/MID/FWD)")
+    plt.legend(title="Línea"); plt.tight_layout()
+    plt.savefig(OUT_FIG/"m_permin_vs_mai_permin_por_linea.png", dpi=200); plt.close()
+
+    # (Opcional) chequear quién quedó como Unknown
+    unknowns = plot_df.loc[plot_df["Line"] == "Unknown", "name"].unique().tolist()
+    if unknowns:
+        print("⚠️ Jugadores con línea 'Unknown' en el gráfico:", ", ".join(unknowns))
     else:
-        print("Aviso: datos insuficientes para scatter con nombres.")
-
-    # ---------- (3) Scatter por posición (Line) ----------
-    # Carga mapping posiciones si existe
-    POS_FILE = Path("data/positions.csv")
-    if POS_FILE.exists():
-        pos = pd.read_csv(POS_FILE)
-        # Normalizar clave de unión: Name -> name
-        if "Name" in pos.columns:
-            pos = pos.rename(columns={"Name": "name"})
-        # Merge
-        plot_pos = plot_df.merge(pos[["name","Position","Line"]], on="name", how="left")
-        # Categorías de color (DEF/MID/FWD/Unknown)
-        def label_line(x):
-            return x if pd.notna(x) else "Unknown"
-        plot_pos["Line"] = plot_pos["Line"].apply(label_line)
-
-        # Colorear por línea
-        lines = plot_pos["Line"].unique().tolist()
-        plt.figure(figsize=(8,6))
-        for ln in lines:
-            sub = plot_pos[plot_pos["Line"] == ln]
-            plt.scatter(sub["m_per_min"], sub["mai_per_min"], alpha=0.85, label=str(ln))
-        # Recta OLS global
-        if len(plot_pos) >= 2:
-            x = plot_pos["m_per_min"].to_numpy(float)
-            y = plot_pos["mai_per_min"].to_numpy(float)
-            A = np.vstack([x, np.ones_like(x)]).T
-            slope, intercept = np.linalg.lstsq(A, y, rcond=None)[0]
-            xx = np.linspace(x.min(), x.max(), 100)
-            yy = slope*xx + intercept
-            plt.plot(xx, yy, linestyle="--", label=f"OLS global: y={slope:.2f}x+{intercept:.2f}")
-        plt.xlabel("m/min")
-        plt.ylabel("MAI/min")
-        plt.title("Relación m/min vs MAI/min por línea (DEF/MID/FWD)")
-        plt.legend(title="Línea")
-        plt.tight_layout()
-        plt.savefig(FIG_DIR/"m_permin_vs_mai_permin_por_linea.png", dpi=200)
-        plt.close()
-
-        # (Opcional) Etiquetas por posición si quieres otra versión:
-        # Descomenta para un scatter con nombres y color por línea
-        """
-        plt.figure(figsize=(9,6))
-        color_map = {ln: None for ln in lines}  # usa colores por defecto
-        for ln in lines:
-            sub = plot_pos[plot_pos['Line'] == ln]
-            plt.scatter(sub["m_per_min"], sub["mai_per_min"], alpha=0.8, label=str(ln))
-            for _, r in sub.iterrows():
-                plt.annotate(str(r["name"]), (r["m_per_min"], r["mai_per_min"]), fontsize=8, alpha=0.8)
-        plt.xlabel("m/min"); plt.ylabel("MAI/min")
-        plt.title("m/min vs MAI/min (nombres + color por línea)")
-        plt.legend(title="Línea")
-        plt.tight_layout()
-        plt.savefig(FIG_DIR/"m_permin_vs_mai_permin_linea_labels.png", dpi=200)
-        plt.close()
-        """
-    else:
-        print("Nota: no se encontró data/positions.csv; se omite el gráfico por posición.")
+        print("✅ Ningún jugador quedó con línea 'Unknown' en el gráfico.")
 else:
     print("Aviso: summary no tiene columnas necesarias: name, m_per_min, mai_per_min.")
-
