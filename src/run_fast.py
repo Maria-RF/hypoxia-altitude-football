@@ -1,11 +1,15 @@
 # scripts/run_fast.py
 from pathlib import Path
+import re
+import unicodedata
+
 import pandas as pd
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")  # backend no interactivo (más rápido/estable)
 import matplotlib.pyplot as plt
 from scipy import stats
+from scipy.stats import pearsonr
 
 # ----------------------------
 # RUTAS (ajusta si es necesario)
@@ -17,6 +21,29 @@ OUT_FIG = Path("outputs/figures")
 OUT_TAB = Path("outputs/tables")
 OUT_FIG.mkdir(parents=True, exist_ok=True)
 OUT_TAB.mkdir(parents=True, exist_ok=True)
+
+# ----------------------------
+# Utils
+# ----------------------------
+def canonical_key(s: str) -> str:
+    if s is None:
+        return ""
+    s = str(s).casefold()
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    s = re.sub(r"[^\w\s]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+# Diccionario para corregir typos
+aliases = {
+    canonical_key("Igor Linchnovsky"): canonical_key("Igor Lichnovsky"),
+    canonical_key("Paulo Diaz"): canonical_key("Paulo Díaz"),
+    canonical_key("Alexis Sanchez"): canonical_key("Alexis Sánchez"),
+    # agrega más si detectas otros
+}
+def apply_alias(k: str) -> str:
+    return aliases.get(k, k)
 
 # ---------------------------------------------------
 # 1) HIPÓXIA: VIOLÍN (SpO2 bloque 1 vs último bloque)
@@ -61,7 +88,7 @@ plt.close()
 # ---------------------------------------------------
 # 2) GPS: RESUMEN RÁPIDO + GRÁFICO m/min vs MAI/min
 # ---------------------------------------------------
-# Lectura robusta para CSV con ; y coma decimal (formato LatAm)
+# Lectura robusta para CSV
 df = pd.read_csv(CSV, engine="python", encoding="utf-8-sig")
 
 # Renombres mínimos a nombres estándar
@@ -73,7 +100,10 @@ rename = {
     "MAInt >20km/h":"mai_m",
     "AInt >15km/h":"hsr_m",
     "MAI/min":"mai_per_min",
-    "SPRINT>25km/h":"sprint_m"
+    "SPRINT>25km/h":"sprint_m",
+    # si existieran en tu CSV:
+    "Position":"Position",
+    "Line":"Line",
 }
 df = df.rename(columns={k:v for k,v in rename.items() if k in df.columns})
 
@@ -90,35 +120,19 @@ if "minutes" in df.columns:
 # Guardar resumen por jugador (modo “rápido”: solo columnas disponibles)
 keep = [c for c in [
     "name","minutes","distance_m","m_per_min","hsr_m","sprint_m","mai_m",
-    "dist_per90","hsr_per90","sprint_per90","mai_per90","mai_per_min"
+    "dist_per90","hsr_per90","sprint_per90","mai_per90","mai_per_min",
+    "Position","Line"
 ] if c in df.columns]
 summary = df[keep].copy()
+
+# Asegurar que existan Position/Line aunque no vengan en el CSV  <<<<< FIX CLAVE
+for col in ("Position","Line"):
+    if col not in summary.columns:
+        summary[col] = "Unknown"
+
 summary.to_csv(OUT_TAB/"gps_summary_by_player.csv", index=False)
 
 # --- Filtrado y alias antes del scatter ---
-
-# Clave canónica para nombres
-def canonical_key(s: str) -> str:
-    import unicodedata, re
-    if s is None:
-        return ""
-    s = str(s).casefold()
-    s = unicodedata.normalize("NFKD", s)
-    s = "".join(ch for ch in s if not unicodedata.combining(ch))
-    s = re.sub(r"[^\w\s]", " ", s)
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
-
-# Diccionario para corregir typos
-aliases = {
-    canonical_key("Igor Linchnovsky"): canonical_key("Igor Lichnovsky"),
-    canonical_key("Paulo Diaz"): canonical_key("Paulo Díaz"),
-    canonical_key("Alexis Sanchez"): canonical_key("Alexis Sánchez"),
-    # agrega más si detectas otros
-}
-def apply_alias(k: str) -> str:
-    return aliases.get(k, k)
-
 # Limitar mean (hipoxia) a jugadores del CSV del partido
 gps_names_key = set(summary["name"].apply(canonical_key))
 mean_filtered = mean[mean["Nombre"].apply(canonical_key).isin(gps_names_key)].copy()
@@ -132,19 +146,16 @@ summary["name_key"] = summary["name"].apply(canonical_key).apply(apply_alias)
 mean_filtered["name_key"] = mean_filtered["Nombre"].apply(canonical_key).apply(apply_alias)
 
 # ---------------------------------------------------
-# Gráficos m/min vs MAI/min: básico, con nombres y por línea (usando summary ya fusionado)
+# Gráficos m/min vs MAI/min: básico, con nombres y por línea
 # ---------------------------------------------------
-import numpy as np
-import matplotlib.pyplot as plt
-
 # Asegurar columnas base
 if {"name","m_per_min","mai_per_min"}.issubset(summary.columns):
-    plot_df = summary[["name","m_per_min","mai_per_min","Position","Line"]].copy()
+    # Construir columnas garantizando Position/Line  <<<<< FIX CLAVE
+    cols = ["name","m_per_min","mai_per_min","Position","Line"]
+    plot_df = summary[cols].copy()
 
-    # Normalizar Line/Position: NaN o "" -> "Unknown"
+    # Normalizar Line/Position
     for col in ["Position", "Line"]:
-        if col not in plot_df.columns:
-            plot_df[col] = "Unknown"
         plot_df[col] = plot_df[col].fillna("").astype(str).str.strip()
         plot_df.loc[plot_df[col] == "", col] = "Unknown"
 
@@ -212,26 +223,8 @@ else:
     print("Aviso: summary no tiene columnas necesarias: name, m_per_min, mai_per_min.")
 
 # ---------------------------------------------------
-# Scatter m/min vs SpO₂ (última sesión) coloreado por línea (DEF/MID/FWD)
-# Matching robusto a tildes/ñ/espacios
+# Scatter m/min vs SpO₂ (última sesión) coloreado por línea
 # ---------------------------------------------------
-import re, unicodedata
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-from scipy.stats import pearsonr
-from pathlib import Path
-
-def canonical_key(s: str) -> str:
-    if s is None:
-        return ""
-    s = str(s).casefold()
-    s = unicodedata.normalize("NFKD", s)
-    s = "".join(ch for ch in s if not unicodedata.combining(ch))
-    s = re.sub(r"[^\w\s]", " ", s)
-    s = re.sub(r"\s+", " ", s).strip()
-    return s
-
 # Última SpO2 disponible por jugador (de mean_filtrado)
 spo2_cols_all = [c for c in mean_filtered.columns if str(c).startswith("SPO2_")]
 last_records = []
@@ -268,11 +261,11 @@ else:
     merged["Position"] = ""
     merged["Line"] = ""
 
-# Normalizar Line y graficar (como ya lo tenías)
+# Normalizar Line y graficar
 merged["Line"] = merged["Line"].fillna("").astype(str).str.strip().replace({"": "Unknown"})
 ok = merged.dropna(subset=["m_per_min","SPO2_last"]).copy()
 
-# Mensajes de diagnóstico más útiles
+# Mensajes de diagnóstico
 faltan_gps = merged[merged["m_per_min"].isna()]["name_excel"].unique().tolist()
 if faltan_gps:
     print("⚠️ Aún sin m/min (no están en CSV del partido o nombre distinto):", ", ".join(faltan_gps))
@@ -287,7 +280,6 @@ if len(ok) >= 2:
     A = np.vstack([x, np.ones_like(x)]).T
     slope, intercept = np.linalg.lstsq(A, y, rcond=None)[0]
     xx = np.linspace(x.min(), x.max(), 100); yy = slope*xx + intercept
-    from scipy.stats import pearsonr
     r, pval = pearsonr(x, y)
     plt.plot(xx, yy, linestyle="--", label=f"OLS global: y={slope:.2f}x+{intercept:.2f}")
     plt.xlabel("m/min (partido)"); plt.ylabel("SpO₂ última sesión (%)")
