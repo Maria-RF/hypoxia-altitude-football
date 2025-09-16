@@ -262,3 +262,62 @@ if {"name","m_per_min","mai_per_min"}.issubset(summary.columns):
         print("✅ Ningún jugador quedó con línea 'Unknown' en el gráfico.")
 else:
     print("Aviso: summary no tiene columnas necesarias: name, m_per_min, mai_per_min.")
+
+# ---------------------------------------------------
+# Correlación m/min (partido) vs SpO₂ última sesión (hipoxia)
+# ---------------------------------------------------
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import pearsonr
+
+# --- 1) Última sesión SpO₂ por jugador
+# mean4 es la tabla con todas las sesiones por jugador (SPO2_1 ... SPO2_n)
+spo2_cols = [c for c in mean4.columns if c.startswith("SPO2_")]
+spo2_last = []
+for _, row in mean4.iterrows():
+    # última sesión con dato válido
+    valid_cols = [c for c in spo2_cols if not pd.isna(row[c])]
+    if valid_cols:
+        last_col = valid_cols[-1]
+        spo2_last.append({"name": row["Nombre"], "SPO2_last": row[last_col]})
+spo2_last_df = pd.DataFrame(spo2_last)
+
+# --- 2) Merge con summary para tener m/min
+if "name" not in summary.columns:
+    name_like = [c for c in summary.columns if c.lower() in ("name","nombre","jugador")]
+    if name_like:
+        summary = summary.rename(columns={name_like[0]:"name"})
+
+merged_corr = spo2_last_df.merge(
+    summary[["name","m_per_min"]], 
+    on="name", 
+    how="left"
+)
+
+# --- 3) Scatter + OLS + correlación
+merged_corr = merged_corr.dropna(subset=["m_per_min","SPO2_last"])
+if len(merged_corr) >= 2:
+    x = merged_corr["m_per_min"].to_numpy(float)
+    y = merged_corr["SPO2_last"].to_numpy(float)
+    r, pval = pearsonr(x, y)
+
+    plt.figure(figsize=(7,5))
+    plt.scatter(x, y, alpha=0.85)
+    # Línea OLS
+    A = np.vstack([x, np.ones_like(x)]).T
+    slope, intercept = np.linalg.lstsq(A, y, rcond=None)[0]
+    xx = np.linspace(x.min(), x.max(), 100)
+    yy = slope*xx + intercept
+    plt.plot(xx, yy, "r--", label=f"OLS: y={slope:.2f}x+{intercept:.2f}")
+    plt.xlabel("m/min (partido)")
+    plt.ylabel("SpO₂ última sesión (%)")
+    plt.title(f"Correlación m/min vs SpO₂ última sesión\nr={r:.2f}, p={pval:.3f}")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(OUT_FIG/"corr_mmin_spo2_last.png", dpi=200)
+    plt.close()
+
+    print(f"✅ Gráfico de correlación guardado en outputs/figures/corr_mmin_spo2_last.png (r={r:.2f}, p={pval:.3f})")
+else:
+    print("⚠️ Datos insuficientes para correlación m/min vs SpO₂ última sesión.")
+
