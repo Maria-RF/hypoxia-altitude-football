@@ -36,23 +36,16 @@ def canonical_key(s: str) -> str:
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
-# Diccionario para corregir typos/variantes (si aparece la clave, la sustituye por el valor)
+# Diccionario para corregir typos/variantes
 aliases = {
     canonical_key("Igor Linchnovsky"): canonical_key("Igor Lichnovsky"),
     canonical_key("Paulo Diaz"): canonical_key("Paulo Díaz"),
     canonical_key("Alexis Sanchez"): canonical_key("Alexis Sánchez"),
-    # Acentos/ñ comunes en Chile:
     canonical_key("Marcelino Nunez"): canonical_key("Marcelino Núñez"),
     canonical_key("Victor Davila"): canonical_key("Víctor Dávila"),
     canonical_key("Rodrigo Echeverria"): canonical_key("Rodrigo Echeverría"),
     canonical_key("Fabian Hormazabal"): canonical_key("Fabián Hormazábal"),
-    canonical_key("Francisco Sierralta"): canonical_key("Francisco Sierralta"),  # ejemplo estable
-    canonical_key("Gabriel Suazo"): canonical_key("Gabriel Suazo"),
-    canonical_key("Felipe Loyola"): canonical_key("Felipe Loyola"),
     canonical_key("Benjamin Kuscevic"): canonical_key("Benjamín Kuscevic"),
-    canonical_key("Lucas Assadi"): canonical_key("Lucas Assadi"),
-    canonical_key("Lucas Cepeda"): canonical_key("Lucas Cepeda"),
-    canonical_key("Javier Altamirano"): canonical_key("Javier Altamirano"),
     canonical_key("Rodrigo Urena"): canonical_key("Rodrigo Ureña"),
     canonical_key("Dario Osorio"): canonical_key("Darío Osorio"),
 }
@@ -156,7 +149,6 @@ summary["name_key"] = summary["name"].apply(canonical_key).apply(apply_alias)
 pos_path = Path("data/positions.csv")
 if pos_path.exists():
     pos_df = pd.read_csv(pos_path)
-    # admitir "Name" o "name"
     if "Name" in pos_df.columns and "name" not in pos_df.columns:
         pos_df = pos_df.rename(columns={"Name":"name"})
     pos_df = ensure_cols(pos_df, {"Position":"", "Line":""})
@@ -165,12 +157,11 @@ if pos_path.exists():
         pos_df[["name_key","Position","Line"]],
         on="name_key", how="left", suffixes=("","_pos")
     )
-    # rellena solo donde falte
+    # <<< FIX: usar combine_first en vez de fillna con Series >>>
     for col in ("Position","Line"):
-        summary[col] = summary[col].fillna(summary.get(f"{col}_pos"))
-        dropcol = f"{col}_pos"
-        if dropcol in summary.columns:
-            summary.drop(columns=[dropcol], inplace=True)
+        if f"{col}_pos" in summary.columns:
+            summary[col] = summary.get(col, pd.Series(index=summary.index, dtype=object)).combine_first(summary[f"{col}_pos"])
+            summary.drop(columns=[f"{col}_pos"], inplace=True)
 
 # Fallback 2: si aún faltara, intenta desde el Excel 'Resumen' si hay columnas afines
 pos_cols_candidates = {
@@ -185,7 +176,6 @@ for std_col, cands in pos_cols_candidates.items():
             break
 if rename_map:
     res_pos = res.rename(columns=rename_map).copy()
-    # detectar columna de nombre
     name_col = "Nombre" if "Nombre" in res_pos.columns else ("Name" if "Name" in res_pos.columns else None)
     if name_col:
         cols = [name_col] + [c for c in ["Position","Line"] if c in res_pos.columns]
@@ -195,16 +185,20 @@ if rename_map:
             pos2[["name_key"] + [c for c in ["Position","Line"] if c in pos2.columns]],
             on="name_key", how="left", suffixes=("","_res")
         )
+        # <<< FIX: usar combine_first aquí también >>>
         for col in ("Position","Line"):
-            summary[col] = summary[col].fillna(summary.get(f"{col}_res"))
-            dropcol = f"{col}_res"
-            if dropcol in summary.columns:
-                summary.drop(columns=[dropcol], inplace=True)
+            if f"{col}_res" in summary.columns:
+                summary[col] = summary.get(col, pd.Series(index=summary.index, dtype=object)).combine_first(summary[f"{col}_res"])
+                summary.drop(columns=[f"{col}_res"], inplace=True)
 
 # Garantiza Position/Line
 summary = ensure_cols(summary, {"Position":"Unknown", "Line":"Unknown"})
 for col in ("Position","Line"):
-    summary[col] = summary[col].fillna("").astype(str).strip().replace({"": "Unknown"})
+    summary[col] = (summary[col]
+                    .astype("string")
+                    .fillna("Unknown")
+                    .str.strip()
+                    .replace({"": "Unknown"}))
 
 # Export resumen
 summary.to_csv(OUT_TAB/"gps_summary_by_player.csv", index=False)
@@ -226,7 +220,7 @@ mean_filtered["name_key"] = mean_filtered["Nombre"].apply(canonical_key).apply(a
 if {"name","m_per_min","mai_per_min","Position","Line"}.issubset(summary.columns):
     plot_df = summary[["name","m_per_min","mai_per_min","Position","Line"]].copy()
     for col in ("Position","Line"):
-        plot_df[col] = plot_df[col].fillna("").astype(str).strip().replace({"": "Unknown"})
+        plot_df[col] = plot_df[col].fillna("Unknown").astype(str).str.strip().replace({"": "Unknown"})
 
     plot_df_basic = plot_df.dropna(subset=["m_per_min","mai_per_min"])
 
@@ -320,7 +314,7 @@ merged = pd.merge(
 )
 
 # Normalizar Line
-merged["Line"] = merged["Line"].fillna("").astype(str).strip().replace({"": "Unknown"})
+merged["Line"] = merged["Line"].fillna("").astype(str).str.strip().replace({"": "Unknown"})
 ok = merged.dropna(subset=["m_per_min","SPO2_last"]).copy()
 
 # Mensajes de diagnóstico
