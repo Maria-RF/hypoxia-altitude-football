@@ -96,227 +96,111 @@ summary = df[keep].copy()
 summary.to_csv(OUT_TAB/"gps_summary_by_player.csv", index=False)
 
 # ---------------------------------------------------
-# Merge con posiciones robusto a tildes y ñ
+# Scatter m/min vs SpO₂ (última sesión) coloreado por línea (DEF/MID/FWD)
+# Matching robusto a tildes/ñ/espacios
 # ---------------------------------------------------
-from pathlib import Path
-import re
-import unicodedata
+import re, unicodedata
+import numpy as np
 import pandas as pd
-
-POS_FILE = Path("data/positions.csv")
+import matplotlib.pyplot as plt
+from scipy.stats import pearsonr
+from pathlib import Path
 
 def canonical_key(s: str) -> str:
-    """
-    Normaliza nombres para hacer match robusto:
-    - casefold (minúsculas robustas)
-    - NFKD + elimina diacríticos (tildes); 'ñ' -> 'n'
-    - elimina signos/puntuación
-    - colapsa y recorta espacios
-    """
     if s is None:
         return ""
-    # a string
-    s = str(s)
-    # minúsculas robustas
-    s = s.casefold()
-    # normaliza unicode y elimina diacríticos (tildes)
+    s = str(s).casefold()
     s = unicodedata.normalize("NFKD", s)
     s = "".join(ch for ch in s if not unicodedata.combining(ch))
-    # opcional: mapear caracteres similares (ñ → n ya queda como 'n' tras NFKD)
-    # limpiar puntuación y no-alfanumérico (conserva espacios)
-    s = re.sub(r"[^\w\s]", " ", s)  # quita puntuación
-    # colapsar espacios múltiples
+    s = re.sub(r"[^\w\s]", " ", s)
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
-# Asegura la columna 'name' en summary (si no existe, intenta inferir)
-if "name" not in summary.columns:
-    # intenta detectar columna de nombre
-    name_like = [c for c in summary.columns if c.lower() in ("name","nombre","jugador","player")]
-    if not name_like:
-        name_like = [summary.columns[0]]
-    summary = summary.rename(columns={name_like[0]: "name"})
-
-# Crea clave canónica en summary
-summary["name_key"] = summary["name"].apply(canonical_key)
-
-if POS_FILE.exists():
-    pos = pd.read_csv(POS_FILE)
-
-    # normaliza encabezado y crea clave canónica también en positions
-    # acepta 'Name' o 'name'
-    if "Name" in pos.columns and "name" not in pos.columns:
-        pos = pos.rename(columns={"Name": "name"})
-    # asegurar columnas Position y Line (si no están, créalas vacías)
-    if "Position" not in pos.columns:
-        pos["Position"] = ""
-    if "Line" not in pos.columns:
-        pos["Line"] = ""
-    pos["name_key"] = pos["name"].apply(canonical_key)
-
-    # merge por clave canónica (left join para no perder nadie del resumen GPS)
-    merged = summary.merge(
-        pos[["name_key","Position","Line","name"]].rename(columns={"name":"name_positions"}),
-        on="name_key",
-        how="left",
-        validate="m:1"
-    )
-
-    # completa Position/Line con vacío si falta
-    merged["Position"] = merged["Position"].fillna("")
-    merged["Line"] = merged["Line"].fillna("")
-
-    # Reporte de no matcheados
-    no_match = merged[merged["Position"].eq("") & merged["Line"].eq("")]["name"].unique().tolist()
-    if no_match:
-        print("⚠️ Sin match en positions.csv para:", ", ".join(no_match))
-    else:
-        print("✅ Todos los jugadores del resumen GPS tienen posición/linea (o se completó).")
-
-    # Guarda tabla final
-    OUT_TAB.mkdir(parents=True, exist_ok=True)
-    merged.to_csv(OUT_TAB / "gps_summary_with_positions.csv", index=False)
-
-    # (Opcional) reemplaza summary por merged para que los gráficos posteriores ya vean Position/Line
-    summary = merged
-
-else:
-    print("ℹ️ No se encontró data/positions.csv; se continúa sin posiciones.")
-
-# ---------------------------------------------------
-# Gráficos m/min vs MAI/min: básico, con nombres y por línea (usando summary ya fusionado)
-# ---------------------------------------------------
-import numpy as np
-import matplotlib.pyplot as plt
-
-# Asegurar columnas base
-if {"name","m_per_min","mai_per_min"}.issubset(summary.columns):
-    plot_df = summary[["name","m_per_min","mai_per_min","Position","Line"]].copy()
-
-    # Normalizar Line/Position: NaN o "" -> "Unknown"
-    for col in ["Position", "Line"]:
-        if col not in plot_df.columns:
-            plot_df[col] = "Unknown"
-        plot_df[col] = plot_df[col].fillna("").astype(str).str.strip()
-        plot_df.loc[plot_df[col] == "", col] = "Unknown"
-
-    # ---------- (1) Scatter básico ----------
-    plot_df_basic = plot_df.dropna(subset=["m_per_min","mai_per_min"])
-    if len(plot_df_basic) >= 2:
-        plt.figure(figsize=(7,5))
-        plt.scatter(plot_df_basic["m_per_min"], plot_df_basic["mai_per_min"], alpha=0.85)
-        x = plot_df_basic["m_per_min"].to_numpy(float)
-        y = plot_df_basic["mai_per_min"].to_numpy(float)
-        A = np.vstack([x, np.ones_like(x)]).T
-        slope, intercept = np.linalg.lstsq(A, y, rcond=None)[0]
-        xx = np.linspace(x.min(), x.max(), 100)
-        yy = slope*xx + intercept
-        plt.plot(xx, yy, linestyle="--", label=f"OLS: y={slope:.2f}x+{intercept:.2f}")
-        plt.xlabel("m/min"); plt.ylabel("MAI/min"); plt.title("Relación m/min vs MAI/min (partido)")
-        plt.legend(); plt.tight_layout()
-        plt.savefig(OUT_FIG/"m_permin_vs_mai_permin_basico.png", dpi=200); plt.close()
-
-    # ---------- (2) Scatter con nombres ----------
-    if len(plot_df_basic) >= 1:
-        plt.figure(figsize=(8,6))
-        plt.scatter(plot_df_basic["m_per_min"], plot_df_basic["mai_per_min"], alpha=0.7)
-        for _, r in plot_df_basic.iterrows():
-            plt.annotate(str(r["name"]), (r["m_per_min"], r["mai_per_min"]), fontsize=8, alpha=0.85)
-        if len(plot_df_basic) >= 2:
-            x = plot_df_basic["m_per_min"].to_numpy(float)
-            y = plot_df_basic["mai_per_min"].to_numpy(float)
-            A = np.vstack([x, np.ones_like(x)]).T
-            slope, intercept = np.linalg.lstsq(A, y, rcond=None)[0]
-            xx = np.linspace(x.min(), x.max(), 100)
-            yy = slope*xx + intercept
-            plt.plot(xx, yy, linestyle="--", label=f"OLS: y={slope:.2f}x+{intercept:.2f}")
-        plt.xlabel("m/min"); plt.ylabel("MAI/min"); plt.title("Relación m/min vs MAI/min (con nombres)")
-        if len(plot_df_basic) >= 2: plt.legend()
-        plt.tight_layout()
-        plt.savefig(OUT_FIG/"m_permin_vs_mai_permin_labels.png", dpi=200); plt.close()
-
-    # ---------- (3) Scatter por línea (DEF/MID/FWD/Unknown) ----------
-    lines = plot_df_basic["Line"].unique().tolist()
-    plt.figure(figsize=(8,6))
-    for ln in lines:
-        sub = plot_df_basic[plot_df_basic["Line"] == ln]
-        plt.scatter(sub["m_per_min"], sub["mai_per_min"], alpha=0.85, label=str(ln))
-    if len(plot_df_basic) >= 2:
-        x = plot_df_basic["m_per_min"].to_numpy(float)
-        y = plot_df_basic["mai_per_min"].to_numpy(float)
-        A = np.vstack([x, np.ones_like(x)]).T
-        slope, intercept = np.linalg.lstsq(A, y, rcond=None)[0]
-        xx = np.linspace(x.min(), x.max(), 100)
-        yy = slope*xx + intercept
-        plt.plot(xx, yy, linestyle="--", label=f"OLS global: y={slope:.2f}x+{intercept:.2f}")
-    plt.xlabel("m/min"); plt.ylabel("MAI/min")
-    plt.title("Relación m/min vs MAI/min por línea (DEF/MID/FWD)")
-    plt.legend(title="Línea"); plt.tight_layout()
-    plt.savefig(OUT_FIG/"m_permin_vs_mai_permin_por_linea.png", dpi=200); plt.close()
-
-    # (Opcional) chequear quién quedó como Unknown
-    unknowns = plot_df.loc[plot_df["Line"] == "Unknown", "name"].unique().tolist()
-    if unknowns:
-        print("⚠️ Jugadores con línea 'Unknown' en el gráfico:", ", ".join(unknowns))
-    else:
-        print("✅ Ningún jugador quedó con línea 'Unknown' en el gráfico.")
-else:
-    print("Aviso: summary no tiene columnas necesarias: name, m_per_min, mai_per_min.")
-
-# ---------------------------------------------------
-# Correlación m/min (partido) vs SpO₂ última sesión real de cada jugador
-# ---------------------------------------------------
-import numpy as np
-import matplotlib.pyplot as plt
-from scipy.stats import pearsonr
-
-# --- 1) Determinar última sesión real por jugador ---
-spo2_cols = [c for c in mean4.columns if c.startswith("SPO2_")]
+# 1) Última SpO₂ disponible por jugador (de 'mean' ya cargado)
+spo2_cols_all = [c for c in mean.columns if str(c).startswith("SPO2_")]
 last_records = []
-for _, row in mean4.iterrows():
-    # todas las sesiones con dato válido
-    valid_sessions = [(c, row[c]) for c in spo2_cols if not pd.isna(row[c])]
-    if valid_sessions:
-        last_col, last_val = valid_sessions[-1]  # última con dato
-        last_records.append({"name": row["Nombre"], "SPO2_last": last_val})
-
+for _, row in mean.iterrows():
+    valid = [(c, row[c]) for c in spo2_cols_all if pd.notna(row.get(c))]
+    if valid:
+        last_col, last_val = valid[-1]
+        last_records.append({"name_excel": row["Nombre"], "name_key": canonical_key(row["Nombre"]), "SPO2_last": float(last_val)})
 spo2_last_df = pd.DataFrame(last_records)
 
-# --- 2) Merge con datos del partido para m/min ---
-if "name" not in summary.columns:
-    name_like = [c for c in summary.columns if c.lower() in ("name","nombre","jugador")]
+# 2) GPS summary con clave
+sum_use = summary.copy()
+if "name" not in sum_use.columns:
+    name_like = [c for c in sum_use.columns if c.lower() in ("name","nombre","jugador","player")]
     if name_like:
-        summary = summary.rename(columns={name_like[0]:"name"})
+        sum_use = sum_use.rename(columns={name_like[0]:"name"})
+sum_use["name_key"] = sum_use["name"].apply(canonical_key)
 
-merged_corr = spo2_last_df.merge(
-    summary[["name","m_per_min"]], 
-    on="name", 
-    how="left"
+# 3) Cargar posiciones y crear clave
+pos_path = Path("data/positions.csv")
+pos_df = None
+if pos_path.exists():
+    pos_df = pd.read_csv(pos_path)
+    if "Name" in pos_df.columns and "name" not in pos_df.columns:
+        pos_df = pos_df.rename(columns={"Name":"name"})
+    for col in ("Position","Line"):
+        if col not in pos_df.columns:
+            pos_df[col] = ""
+    pos_df["name_key"] = pos_df["name"].apply(canonical_key)
+
+# 4) Merge robusto: SpO₂_last ←→ GPS (m/min) ←→ Positions (Line)
+merged = pd.merge(
+    spo2_last_df[["name_key","name_excel","SPO2_last"]],
+    sum_use[["name_key","name","m_per_min"]],
+    on="name_key", how="left"
 )
 
-# --- 3) Scatter + OLS + correlación ---
-merged_corr = merged_corr.dropna(subset=["m_per_min","SPO2_last"])
-if len(merged_corr) >= 2:
-    x = merged_corr["m_per_min"].to_numpy(float)
-    y = merged_corr["SPO2_last"].to_numpy(float)
-    r, pval = pearsonr(x, y)
+if pos_df is not None:
+    merged = pd.merge(
+        merged,
+        pos_df[["name_key","Position","Line"]],
+        on="name_key", how="left"
+    )
+else:
+    merged["Position"] = ""
+    merged["Line"] = ""
 
-    plt.figure(figsize=(7,5))
-    plt.scatter(x, y, alpha=0.85)
-    # Línea OLS
+# Normalizar Line: NaN/"" -> "Unknown"
+merged["Line"] = merged["Line"].fillna("").astype(str).str.strip()
+merged.loc[merged["Line"]=="","Line"] = "Unknown"
+
+# 5) Preparar datos completos para graficar
+ok = merged.dropna(subset=["m_per_min","SPO2_last"]).copy()
+
+# Mensajes de diagnóstico útiles en consola
+faltan_gps = merged[merged["m_per_min"].isna()]["name_excel"].unique().tolist()
+if faltan_gps:
+    print("⚠️ Sin m/min en CSV para:", ", ".join(faltan_gps))
+unknowns = ok.loc[ok["Line"]=="Unknown","name"].fillna(ok.loc[ok["Line"]=="Unknown","name_excel"]).unique().tolist()
+if unknowns:
+    print("⚠️ Jugadores sin línea conocida (Unknown):", ", ".join(map(str, unknowns)))
+
+# 6) Scatter por línea de juego
+if len(ok) >= 2:
+    plt.figure(figsize=(8,6))
+    for ln in ok["Line"].unique():
+        sub = ok[ok["Line"] == ln]
+        plt.scatter(sub["m_per_min"], sub["SPO2_last"], alpha=0.85, label=str(ln))
+    # Línea OLS global + Pearson
+    x = ok["m_per_min"].to_numpy(float)
+    y = ok["SPO2_last"].to_numpy(float)
     A = np.vstack([x, np.ones_like(x)]).T
     slope, intercept = np.linalg.lstsq(A, y, rcond=None)[0]
     xx = np.linspace(x.min(), x.max(), 100)
     yy = slope*xx + intercept
-    plt.plot(xx, yy, "r--", label=f"OLS: y={slope:.2f}x+{intercept:.2f}")
+    r, pval = pearsonr(x, y)
+    plt.plot(xx, yy, linestyle="--", label=f"OLS global: y={slope:.2f}x+{intercept:.2f}")
     plt.xlabel("m/min (partido)")
     plt.ylabel("SpO₂ última sesión (%)")
-    plt.title(f"Correlación m/min vs SpO₂ última sesión real\nr={r:.2f}, p={pval:.3f}")
-    plt.legend()
+    plt.title(f"m/min vs SpO₂ última sesión por línea (n={len(ok)})\nPearson r={r:.2f}, p={pval:.3f}")
+    plt.legend(title="Línea")
     plt.tight_layout()
-    plt.savefig(OUT_FIG/"corr_mmin_spo2_last.png", dpi=200)
+    OUT_FIG.mkdir(parents=True, exist_ok=True)
+    plt.savefig(OUT_FIG/"corr_mmin_spo2_last_by_line.png", dpi=200)
     plt.close()
-
-    print(f"✅ Gráfico de correlación guardado: outputs/figures/corr_mmin_spo2_last.png (r={r:.2f}, p={pval:.3f})")
+    print("✅ Figura guardada:", OUT_FIG/"corr_mmin_spo2_last_by_line.png")
 else:
-    print("⚠️ Datos insuficientes para correlación m/min vs SpO₂ última sesión real.")
+    print("⚠️ Datos insuficientes para el scatter por línea (se necesitan ≥2 pares).")
